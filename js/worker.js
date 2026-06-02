@@ -96,17 +96,32 @@ async function run({ audio, whisperId, device, language, withDiarization }) {
   post({ status: "loading_models" });
   await ensureModels(whisperId, device, withDiarization);
 
-  // ---- 1) Transcrição com timestamps por palavra ----
+  // ---- 1) Transcrição com timestamps ----
+  // Tentamos timestamps por PALAVRA (melhor alinhamento), mas nem todo export
+  // ONNX traz as cross-attentions necessárias. Se falhar, caímos para
+  // timestamps por SEGMENTO, que são estáveis e suficientes.
   post({ status: "transcribing" });
-  const asrOptions = {
-    return_timestamps: "word",
-    chunk_length_s: 30,
-    stride_length_s: 5,
-  };
-  if (language && language !== "auto") asrOptions.language = language;
 
-  const asr = await transcriber(audio, asrOptions);
-  const words = (asr.chunks || [])
+  const baseOptions = { chunk_length_s: 30, stride_length_s: 5 };
+  if (language && language !== "auto") baseOptions.language = language;
+
+  let asr;
+  let granularity = "word";
+  try {
+    asr = await transcriber(audio, { ...baseOptions, return_timestamps: "word" });
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (/cross attention|output_attentions|timestamp/i.test(msg)) {
+      post({ status: "info", message: "Timestamps por palavra indisponíveis; usando por trecho." });
+      granularity = "segment";
+      asr = await transcriber(audio, { ...baseOptions, return_timestamps: true });
+    } else {
+      throw e;
+    }
+  }
+
+  // Normaliza tudo para "unidades" {text, start, end}: palavras OU trechos.
+  const units = (asr.chunks || [])
     .filter((c) => Array.isArray(c.timestamp))
     .map((c) => ({
       text: c.text,
@@ -131,9 +146,10 @@ async function run({ audio, whisperId, device, language, withDiarization }) {
 
   post({
     status: "complete",
-    words,
+    units,
+    granularity,
     segments,
-    fullText: asr.text || words.map((w) => w.text).join(""),
+    fullText: asr.text || units.map((w) => w.text).join(""),
   });
 }
 

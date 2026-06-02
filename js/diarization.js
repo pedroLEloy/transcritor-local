@@ -26,31 +26,34 @@ function speakerForWord(word, segments) {
   return best.id;
 }
 
-// Junta palavras consecutivas do mesmo locutor em parágrafos.
-// Quebra também em pausas longas (> gapSplit) para não criar blocos gigantes.
-export function buildParagraphs(words, segments, { gapSplit = 8 } = {}) {
+// Junta unidades consecutivas (palavras OU trechos) do mesmo locutor em
+// parágrafos. `granularity` indica se as unidades são "word" (concatenadas sem
+// espaço extra, pois o token já traz o espaço inicial) ou "segment" (juntadas
+// com espaço). Quebra também em pausas longas (> gapSplit).
+export function buildParagraphs(units, segments, { gapSplit = 8, granularity = "word" } = {}) {
   const hasDiar = segments && segments.length > 0;
+  const joiner = granularity === "segment" ? " " : "";
   const paragraphs = [];
   let current = null;
 
-  for (const w of words) {
-    const spk = hasDiar ? speakerForWord(w, segments) : 0;
+  for (const u of units) {
+    const spk = hasDiar ? speakerForWord(u, segments) : 0;
 
     const speakerChanged = current && current.speaker !== spk;
-    const bigGap = current && w.start - current.end > gapSplit;
+    const bigGap = current && u.start - current.end > gapSplit;
 
     if (!current || speakerChanged || (!hasDiar && bigGap)) {
       if (current) paragraphs.push(current);
-      current = { speaker: spk, start: w.start, end: w.end, text: w.text };
+      current = { speaker: spk, start: u.start, end: u.end, text: u.text };
     } else {
-      current.text += w.text;
-      current.end = w.end;
+      current.text += joiner + u.text;
+      current.end = u.end;
     }
   }
   if (current) paragraphs.push(current);
 
-  // Limpa espaços nas bordas de cada parágrafo.
-  for (const p of paragraphs) p.text = p.text.trim();
+  // Limpa espaços duplicados e bordas de cada parágrafo.
+  for (const p of paragraphs) p.text = p.text.replace(/\s+/g, " ").trim();
   return paragraphs.filter((p) => p.text.length > 0);
 }
 

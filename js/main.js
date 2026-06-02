@@ -178,9 +178,11 @@ async function run() {
 }
 
 function onComplete(msg) {
-  state.words = msg.words || [];
+  state.words = msg.units || [];
   state.segments = msg.segments || [];
-  state.paragraphs = buildParagraphs(state.words, state.segments);
+  state.paragraphs = buildParagraphs(state.words, state.segments, {
+    granularity: msg.granularity || "word",
+  });
   state.speakerOrder = detectSpeakers(state.paragraphs);
 
   // Nomes padrão para cada locutor (preserva nomes já editados).
