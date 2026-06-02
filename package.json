@@ -1,0 +1,13 @@
+{
+  "name": "transcritor-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Transcrição de áudio/vídeo com locutores e timestamps, 100% no navegador (Whisper via Transformers.js). Sem upload, sem servidor.",
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes serve@14 . -l 3000",
+    "start": "npx --yes serve@14 . -l 3000"
+  },
+  "keywords": ["whisper", "transcricao", "diarizacao", "transformers.js", "privacidade", "local"],
+  "license": "MIT"
+}

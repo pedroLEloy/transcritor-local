@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transcritor Local · Whisper no navegador</title>
+  <meta name="description" content="Transcrição de áudio com identificação de locutores e timestamps, 100% no seu navegador. Nada é enviado a servidores." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesk:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◖◗</span>
+      <div>
+        <h1>Transcritor <em>Local</em></h1>
+        <p class="tagline">Whisper · OpenAI — rodando dentro do seu navegador</p>
+      </div>
+    </div>
+    <div class="privacy-badge" title="Nenhum arquivo sai do seu dispositivo">
+      <span class="lock">●</span> 100% local · zero upload
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Coluna esquerda: entrada e controles -->
+    <section class="panel left">
+      <div id="dropzone" class="dropzone" tabindex="0" role="button"
+           aria-label="Selecionar arquivo de áudio ou vídeo">
+        <div class="drop-icon">⤓</div>
+        <p class="drop-title">Solte aqui o áudio ou vídeo</p>
+        <p class="drop-sub">ou clique para escolher · mp3, wav, m4a, ogg, flac, webm, mp4</p>
+        <input id="fileInput" type="file"
+               accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm,.mp4" hidden />
+      </div>
+      <p id="fileName" class="file-name"></p>
+
+      <div id="controls" class="controls" hidden>
+        <label class="field">
+          <span>Modelo</span>
+          <select id="modelSel">
+            <option value="onnx-community/whisper-base_timestamped" selected>Base · equilíbrio (recomendado)</option>
+            <option value="Xenova/whisper-tiny">Tiny · mais rápido, menos preciso</option>
+            <option value="onnx-community/whisper-small">Small · mais preciso, mais pesado</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Idioma</span>
+          <select id="langSel">
+            <option value="auto" selected>Detecção automática</option>
+            <option value="portuguese">Português</option>
+            <option value="english">Inglês</option>
+            <option value="spanish">Espanhol</option>
+          </select>
+        </label>
+
+        <label class="check">
+          <input id="diarChk" type="checkbox" checked />
+          <span>Identificar locutores (diarização)</span>
+        </label>
+
+        <div class="btn-row">
+          <button id="runBtn" class="btn primary">Transcrever</button>
+          <button id="clearBtn" class="btn ghost">Apagar tudo</button>
+        </div>
+      </div>
+
+      <div id="progressWrap" class="progress-wrap" hidden>
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <p id="progressLabel" class="progress-label"></p>
+      </div>
+
+      <p id="status" class="status"></p>
+
+      <div id="playerWrap" class="player-wrap" hidden>
+        <audio id="audio" controls preload="metadata"></audio>
+      </div>
+
+      <aside class="note">
+        <strong>Privacidade primeiro.</strong> O áudio é processado aqui, no navegador.
+        Ele nunca é enviado a nenhum servidor e é descartado quando você fecha
+        ou atualiza a página. Apenas os <em>pesos do modelo</em> ficam em cache
+        para acelerar usos futuros.
+        <button id="purgeCache" class="link-btn">Limpar cache de modelos</button>
+      </aside>
+    </section>
+
+    <!-- Coluna direita: resultado -->
+    <section class="panel right">
+      <div id="result" class="result" hidden>
+        <div id="speakersPanel" class="speakers" hidden>
+          <h2>Locutores</h2>
+          <p class="speakers-hint">Renomeie ou mescle se a identificação errar.</p>
+          <div id="speakersList" class="speakers-list"></div>
+        </div>
+
+        <div id="exportBar" class="export-bar" hidden>
+          <button id="exportTxt" class="btn primary sm">Exportar TXT</button>
+          <button id="exportSrt" class="btn ghost sm">Exportar SRT</button>
+        </div>
+
+        <article id="transcript" class="transcript"></article>
+      </div>
+
+      <div id="placeholder" class="placeholder">
+        <div class="ph-art">“…”</div>
+        <p>A transcrição aparece aqui, com locutores e marcações de tempo.</p>
+        <p class="ph-sub">Tudo clicável: toque num horário para ouvir o trecho.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Whisper é open-source (MIT) da OpenAI · Transformers.js · pyannote-segmentation</span>
+  </footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
