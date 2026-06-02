@@ -86,6 +86,9 @@ function handleWorker(msg) {
       hideProgress();
       setStatus("Modelos prontos.", "ok");
       break;
+    case "info":
+      setStatus(msg.message, "busy");
+      break;
     case "transcribing":
       showProgress(null, "Transcrevendo o áudio com o Whisper…");
       setStatus("Transcrevendo…", "busy");

@@ -9,50 +9,77 @@
 //  desta aba — ele chega aqui como Float32Array e é descartado ao terminar.
 // ============================================================================
 
-import {
-  pipeline,
-  AutoProcessor,
-  AutoModelForAudioFrameClassification,
-  env,
-} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.6.1";
-
-// Nunca procurar modelos locais; sempre buscar no Hub e cachear no navegador.
-env.allowLocalModels = false;
-env.useBrowserCache = true;
-
+const LIB_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.6.1";
 const SEG_MODEL_ID = "onnx-community/pyannote-segmentation-3.0";
 
-let transcriber = null;       // pipeline de ASR (Whisper)
-let segModel = null;          // modelo de segmentação de locutores
-let segProcessor = null;      // pré/pós-processador da diarização
-let loadedWhisperId = null;   // qual modelo Whisper está carregado
-let loadedDevice = null;      // 'webgpu' | 'wasm'
+let lib = null;              // módulo Transformers.js (carregado sob demanda)
+let transcriber = null;      // pipeline de ASR (Whisper)
+let segModel = null;         // modelo de segmentação de locutores
+let segProcessor = null;     // pré/pós-processador da diarização
+let loadedWhisperId = null;
+let loadedDevice = null;
 
 function post(msg) {
   self.postMessage(msg);
 }
 
-// Carrega (ou reaproveita) os modelos necessários.
-async function ensureModels(whisperId, device, withDiarization) {
-  // ---- Whisper ----
-  if (transcriber === null || loadedWhisperId !== whisperId || loadedDevice !== device) {
-    transcriber = null; // libera o anterior para o GC
-    const options = {
-      // Em GPU usamos quantização leve no decoder; em WASM ficamos em fp32/q8.
-      dtype:
-        device === "webgpu"
-          ? { encoder_model: "fp32", decoder_model_merged: "q4" }
-          : { encoder_model: "fp32", decoder_model_merged: "q8" },
-      device,
+// Carrega a biblioteca de forma dinâmica para capturar erros de rede/CSP.
+async function getLib() {
+  if (lib) return lib;
+  try {
+    lib = await import(LIB_URL);
+  } catch (e) {
+    throw new Error(
+      "Não foi possível carregar a biblioteca de IA (Transformers.js). " +
+      "Verifique a conexão e se o cdn.jsdelivr.net está liberado. Detalhe: " +
+      (e && e.message ? e.message : e)
+    );
+  }
+  lib.env.allowLocalModels = false;
+  lib.env.useBrowserCache = true;
+  return lib;
+}
+
+// Cria o pipeline do Whisper tentando WebGPU e caindo para WASM se falhar.
+async function buildTranscriber(whisperId, device) {
+  const { pipeline } = await getLib();
+
+  const make = async (dev) => {
+    const dtype =
+      dev === "webgpu"
+        ? { encoder_model: "fp32", decoder_model_merged: "q4" }
+        : { encoder_model: "fp32", decoder_model_merged: "q8" };
+    return pipeline("automatic-speech-recognition", whisperId, {
+      dtype,
+      device: dev,
       progress_callback: (p) => post({ status: "progress", stage: "whisper", ...p }),
-    };
-    transcriber = await pipeline("automatic-speech-recognition", whisperId, options);
-    loadedWhisperId = whisperId;
+    });
+  };
+
+  try {
+    const t = await make(device);
     loadedDevice = device;
+    return t;
+  } catch (e) {
+    if (device === "webgpu") {
+      post({ status: "info", message: "WebGPU indisponível; usando WASM." });
+      const t = await make("wasm");
+      loadedDevice = "wasm";
+      return t;
+    }
+    throw e;
+  }
+}
+
+async function ensureModels(whisperId, device, withDiarization) {
+  if (transcriber === null || loadedWhisperId !== whisperId || loadedDevice == null) {
+    transcriber = null;
+    transcriber = await buildTranscriber(whisperId, device);
+    loadedWhisperId = whisperId;
   }
 
-  // ---- Diarização (opcional) ----
   if (withDiarization && (segModel === null || segProcessor === null)) {
+    const { AutoProcessor, AutoModelForAudioFrameClassification } = await getLib();
     segProcessor = await AutoProcessor.from_pretrained(SEG_MODEL_ID, {
       progress_callback: (p) => post({ status: "progress", stage: "diar", ...p }),
     });
@@ -62,7 +89,6 @@ async function ensureModels(whisperId, device, withDiarization) {
   }
 }
 
-// Executa o pipeline completo sobre o PCM (Float32Array, mono, 16 kHz).
 async function run({ audio, whisperId, device, language, withDiarization }) {
   post({ status: "loading_models" });
   await ensureModels(whisperId, device, withDiarization);
@@ -77,13 +103,12 @@ async function run({ audio, whisperId, device, language, withDiarization }) {
   if (language && language !== "auto") asrOptions.language = language;
 
   const asr = await transcriber(audio, asrOptions);
-  // asr.chunks = [{ text, timestamp: [inicio, fim] }, ...]  (uma palavra por item)
   const words = (asr.chunks || [])
     .filter((c) => Array.isArray(c.timestamp))
     .map((c) => ({
       text: c.text,
       start: c.timestamp[0],
-      end: c.timestamp[1] ?? c.timestamp[0],
+      end: c.timestamp[1] != null ? c.timestamp[1] : c.timestamp[0],
     }));
 
   // ---- 2) Diarização (quem fala quando) ----
@@ -92,9 +117,8 @@ async function run({ audio, whisperId, device, language, withDiarization }) {
     post({ status: "diarizing" });
     const inputs = await segProcessor(audio);
     const { logits } = await segModel(inputs);
-    // post_process devolve [{ id, start, end, confidence }] com tempos em segundos.
     const result = segProcessor.post_process_speaker_diarization(logits, audio.length);
-    segments = (result?.[0] || []).map((s) => ({
+    segments = (result && result[0] ? result[0] : []).map((s) => ({
       id: s.id,
       start: s.start,
       end: s.end,
@@ -116,12 +140,19 @@ self.addEventListener("message", async (e) => {
     if (data.type === "run") {
       await run(data);
     } else if (data.type === "warmup") {
-      // Pré-carrega os modelos sem áudio, só para baixar/cachear.
       post({ status: "loading_models" });
       await ensureModels(data.whisperId, data.device, data.withDiarization);
       post({ status: "ready" });
     }
   } catch (err) {
-    post({ status: "error", message: String(err?.message || err) });
+    post({ status: "error", message: String(err && err.message ? err.message : err || "falha desconhecida") });
   }
+});
+
+// Captura erros não tratados dentro do worker e os reporta com texto.
+self.addEventListener("error", (e) => {
+  post({ status: "error", message: e.message || "erro interno do worker" });
+});
+self.addEventListener("unhandledrejection", (e) => {
+  post({ status: "error", message: String((e.reason && e.reason.message) || e.reason || "promessa rejeitada") });
 });
