@@ -34,10 +34,13 @@ Runtime Web. A diarização (quem fala quando) usa o modelo
   navegador para acelerar usos seguintes. Isso **não** são dados seus — e há um
   botão "Limpar cache de modelos" na interface.
 - **Cabeçalhos de segurança** (em `vercel.json`): `Content-Security-Policy`
-  restritiva, `COOP`/`COEP: credentialless` (habilita multithreading via
-  `SharedArrayBuffer`), `X-Content-Type-Options`, `Referrer-Policy: no-referrer`,
+  restritiva (sem CDNs de terceiros para o runtime — só o Hugging Face para
+  baixar os modelos), `X-Content-Type-Options`, `Referrer-Policy: no-referrer`,
   `X-Frame-Options: DENY`, `Permissions-Policy` desligando câmera/microfone/etc.,
   e `HSTS`.
+- **Runtime local:** a própria biblioteca Transformers.js e o ONNX Runtime ficam
+  versionados em `js/vendor/` (mesma origem), eliminando dependência de CDN. Roda
+  em single-thread WASM; o WebGPU acelera o Whisper quando disponível.
 
 ## Rodar localmente
 
@@ -80,7 +83,8 @@ transcritor-local/
 │   ├── worker.js       # Whisper + pyannote (toda a IA, em Web Worker)
 │   ├── audio.js        # decodifica e reamostra para 16 kHz mono
 │   ├── diarization.js  # alinha palavras a locutores e monta parágrafos
-│   └── export.js       # gera TXT e SRT
+│   ├── export.js       # gera TXT e SRT
+│   └── vendor/         # Transformers.js + ONNX Runtime (mesma origem, sem CDN)
 ├── vercel.json         # cabeçalhos de segurança
 ├── package.json
 ├── LICENSE
@@ -97,10 +101,9 @@ transcritor-local/
   renomear/mesclar manual.
 - **Arquivos longos** consomem memória e tempo proporcionalmente. Para reuniões
   longas, prefira o `base` e considere dividir o áudio.
-- Se o carregamento do modelo falhar por causa do `COEP`, remova a linha
-  `Cross-Origin-Embedder-Policy` do `vercel.json`: a app passa a rodar
-  single-thread, sem multithreading, mas funciona.
-- Navegadores recomendados: **Chrome/Edge** (WebGPU e `COEP: credentialless`).
+- Se o carregamento dos **modelos** falhar, confirme que o `huggingface.co` está
+  acessível na sua rede (é de lá que os pesos são baixados na 1ª vez).
+- Navegadores recomendados: **Chrome/Edge** (WebGPU acelera o Whisper).
   Firefox/Safari funcionam em WebAssembly single-thread.
 
 ## Créditos

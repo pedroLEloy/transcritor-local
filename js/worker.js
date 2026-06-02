@@ -9,7 +9,8 @@
 //  desta aba — ele chega aqui como Float32Array e é descartado ao terminar.
 // ============================================================================
 
-const LIB_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.6.1";
+const LIB_URL = new URL("./vendor/transformers.min.js", import.meta.url).href;
+const WASM_PATH = new URL("./vendor/", import.meta.url).href;
 const SEG_MODEL_ID = "onnx-community/pyannote-segmentation-3.0";
 
 let lib = null;              // módulo Transformers.js (carregado sob demanda)
@@ -23,20 +24,22 @@ function post(msg) {
   self.postMessage(msg);
 }
 
-// Carrega a biblioteca de forma dinâmica para capturar erros de rede/CSP.
+// Carrega a biblioteca (vendorizada, mesma origem) e configura o runtime ONNX.
 async function getLib() {
   if (lib) return lib;
   try {
     lib = await import(LIB_URL);
   } catch (e) {
     throw new Error(
-      "Não foi possível carregar a biblioteca de IA (Transformers.js). " +
-      "Verifique a conexão e se o cdn.jsdelivr.net está liberado. Detalhe: " +
-      (e && e.message ? e.message : e)
+      "Não foi possível carregar a biblioteca de IA local (js/vendor/transformers.min.js). " +
+      "Detalhe: " + (e && e.message ? e.message : e)
     );
   }
-  lib.env.allowLocalModels = false;
-  lib.env.useBrowserCache = true;
+  lib.env.allowLocalModels = false;     // modelos vêm do Hugging Face Hub
+  lib.env.useBrowserCache = true;       // mas ficam em cache local
+  // Runtime ONNX servido localmente (sem CDN), single-thread (sem SharedArrayBuffer).
+  lib.env.backends.onnx.wasm.wasmPaths = WASM_PATH;
+  lib.env.backends.onnx.wasm.numThreads = 1;
   return lib;
 }
 
